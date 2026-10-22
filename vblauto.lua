@@ -21,6 +21,7 @@ local DEFAULT = {
 	CODES = {},
 	REDEEM_DELAY = 2,
 	WAIT_REDEEM_BEFORE_DONE = false,
+	LOG_INTERVAL = 60,
 }
 
 local function getCfg(key)
@@ -65,7 +66,10 @@ local function getLevel()
 	return 0
 end
 
--- สถานะระบบใส่โค้ด (แชร์กับระบบสุ่ม)
+-- สถานะกลาง (ลูปส่ง log อ่านจากตรงนี้)
+local state = { status = "เริ่มทำงาน", rolls = 0, lastLevel = 0, lastStyle = "" }
+
+-- สถานะระบบใส่โค้ด
 local redeemState = { finished = false, success = 0, failed = 0, ran = false }
 
 local function redeemSummary()
@@ -81,8 +85,13 @@ local function sendLog(status, rolls)
 		return
 	end
 
+	-- อ่านสดทุกครั้ง ถ้า Nametag/เสื้อหาย (ตาย/เกิดใหม่) ใช้ค่าล่าสุดแทน
 	local level = getLevel()
+	if level > 0 then state.lastLevel = level else level = state.lastLevel end
+
 	local style = getStyle()
+	if style ~= "" then state.lastStyle = style else style = state.lastStyle end
+
 	local msg = clean("🌲Level : " .. level .. " , ⚔️ Style : " .. style .. " , " .. status)
 
 	local json = HttpService:JSONEncode({
@@ -100,7 +109,15 @@ local function sendLog(status, rolls)
 	end
 end
 
+-- ส่ง log ด้วยสถานะล่าสุดที่จำไว้
+local function report()
+	sendLog(state.status .. " , " .. redeemSummary(), state.rolls)
+end
+
 local function finish(status, rolls, markDone)
+	state.status = status
+	state.rolls = rolls
+
 	-- ถ้าตั้งไว้ รอระบบใส่โค้ดเสร็จก่อนส่ง Done
 	if markDone and getCfg("WAIT_REDEEM_BEFORE_DONE") == true then
 		while isAutoRedeem() and not redeemState.finished do
@@ -108,13 +125,26 @@ local function finish(status, rolls, markDone)
 		end
 	end
 
-	sendLog(status .. " , " .. redeemSummary(), rolls)
+	report()
 
 	if markDone and _G.Horst_AccountChangeDone then
 		local ok, err = _G.Horst_AccountChangeDone()
 		if not ok then
 			warn("ส่ง Done ไม่สำเร็จ:", err)
 		end
+	end
+end
+
+-- ==================== ลูปส่ง log ทุก N วินาที ====================
+local function runStatusLoop()
+	local interval = tonumber(getCfg("LOG_INTERVAL")) or DEFAULT.LOG_INTERVAL
+	if interval < 10 then interval = 10 end -- กันตั้งถี่เกินไป
+
+	print("[Log] ส่ง log ทุก", interval, "วินาที")
+
+	while true do
+		task.wait(interval)
+		report()
 	end
 end
 
@@ -209,11 +239,15 @@ local function runRoll()
 		return
 	end
 
-	-- ปิด Auto Roll: ส่งสถานะปัจจุบันแล้วจบ ไม่สุ่ม
+	-- ปิด Auto Roll: ส่งสถานะปัจจุบัน (ลูปส่ง log จะอัปเดตต่อเอง) แล้วจบส่วนสุ่ม
 	if not isAutoRoll() then
 		finish("ปิด Auto Roll (ไม่สุ่ม)", 0, false)
 		return
 	end
+
+	state.status = "เริ่มสุ่ม"
+	state.rolls = 0
+	report()
 
 	local rolls = 0
 
@@ -253,6 +287,10 @@ local function runRoll()
 		local style = getStyle()
 		print(("[Roll] สุ่มครั้งที่ %d -> %s"):format(i, style))
 
+		-- อัปเดตสถานะให้ลูปส่ง log หยิบไปส่งรอบถัดไป
+		state.status = ("กำลังสุ่ม สุ่มไปแล้ว %d ครั้ง"):format(i)
+		state.rolls = i
+
 		if style ~= "" and isWanted(style) then
 			finish("ได้ตัวที่ต้องการ สุ่มไป " .. i .. " ครั้ง", i, true)
 			return
@@ -263,6 +301,10 @@ local function runRoll()
 end
 
 -- ==================== เริ่มทำงาน ====================
+task.spawn(function()
+	pcall(runStatusLoop)
+end)
+
 if isAutoRedeem() then
 	task.spawn(function()
 		pcall(runRedeem)
