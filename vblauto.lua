@@ -1,23 +1,3 @@
--- ==================== CONFIG ====================
-_G.RollConfig = {
-	-- สุ่ม
-	AUTO_ROLL = true,                    -- true = เปิดสุ่ม / false = ปิด
-	WANTED = { "Yachikusai", "Hinto" },  -- Style ที่ต้องการ (ไม่สนตัวพิมพ์เล็ก/ใหญ่)
-	MAX_ROLLS = 500,
-	WAIT_AFTER_ROLL = 3,
-	CALL_JERSEY_UPDATE = true,
-
-	-- ใส่โค้ด
-	AUTO_REDEEM = true,                  -- true = เปิด / false = ปิด
-	REDEEM_LEVEL = 15,                   -- เลเวลที่ต้องถึงก่อนใส่โค้ด
-	CODES = { "CODE1", "CODE2" },        -- แก้เป็นโค้ดจริง
-	REDEEM_DELAY = 2,                    -- รอระหว่างโค้ดกี่วินาที
-
-	-- รวม
-	WAIT_REDEEM_BEFORE_DONE = false,     -- true = รอใส่โค้ดเสร็จก่อนส่ง Done
-}
--- ================================================
-
 local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
 local HttpService = game:GetService("HttpService")
@@ -31,7 +11,7 @@ local Redeem = Services.CodeService.RF.Redeem
 -- ===== อ่าน Config (ถ้าไม่ได้ตั้ง ใช้ค่าเริ่มต้น) =====
 local DEFAULT = {
 	AUTO_ROLL = true,
-	WANTED = { "Yachikusai" },
+	WANTED = { "Sanju", "Kisuki" },
 	MAX_ROLLS = 500,
 	WAIT_AFTER_ROLL = 3,
 	CALL_JERSEY_UPDATE = true,
