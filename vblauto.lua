@@ -7,12 +7,38 @@ local Services = RS.Packages._Index["sleitnick_knit@1.7.0"].knit.Services
 local Roll = Services.StyleService.RF.Roll
 local RequestJerseyUpdate = Services.JerseyService.RF.RequestJerseyUpdate
 
--- ===== ตั้งค่า =====
-local WANTED = { "Yachikusai" } -- Style ที่ต้องการ (ไม่สนตัวพิมพ์เล็ก/ใหญ่)
-local MAX_ROLLS = 500
-local WAIT_AFTER_ROLL = 3
-local CALL_JERSEY_UPDATE = true
--- ====================
+-- ===== อ่าน Config (ถ้าไม่ได้ตั้ง ใช้ค่าเริ่มต้น) =====
+local DEFAULT = {
+	WANTED = { "Yachikusai" },
+	MAX_ROLLS = 500,
+	WAIT_AFTER_ROLL = 3,
+	CALL_JERSEY_UPDATE = true,
+}
+
+local userCfg = type(_G.RollConfig) == "table" and _G.RollConfig or {}
+local cfg = {}
+for k, v in pairs(DEFAULT) do
+	if userCfg[k] ~= nil then
+		cfg[k] = userCfg[k]
+	else
+		cfg[k] = v
+	end
+end
+
+-- WANTED ใส่เป็น string เดี่ยวๆ ก็ได้
+if type(cfg.WANTED) == "string" then
+	cfg.WANTED = { cfg.WANTED }
+end
+if type(cfg.WANTED) ~= "table" or #cfg.WANTED == 0 then
+	warn("WANTED ว่างหรือผิดรูปแบบ หยุดทำงาน")
+	return
+end
+
+local WANTED = cfg.WANTED
+local MAX_ROLLS = tonumber(cfg.MAX_ROLLS) or DEFAULT.MAX_ROLLS
+local WAIT_AFTER_ROLL = tonumber(cfg.WAIT_AFTER_ROLL) or DEFAULT.WAIT_AFTER_ROLL
+local CALL_JERSEY_UPDATE = cfg.CALL_JERSEY_UPDATE == true
+-- =====================================================
 
 local function clean(text)
 	text = tostring(text):gsub("<[^>]+>", ""):gsub("[|;]", "")
@@ -44,14 +70,13 @@ end
 
 local function isWanted(style)
 	for _, name in ipairs(WANTED) do
-		if style:lower() == name:lower() then
+		if style:lower() == tostring(name):lower() then
 			return true
 		end
 	end
 	return false
 end
 
--- ส่ง log เข้า Horst
 local function sendLog(status, rolls)
 	if not _G.Horst_SetDescription then
 		warn("ไม่พบ _G.Horst_SetDescription")
@@ -85,6 +110,8 @@ local function finish(status, rolls, markDone)
 		end
 	end
 end
+
+print("เริ่มสุ่ม | เป้าหมาย:", table.concat(WANTED, ", "), "| สูงสุด:", MAX_ROLLS)
 
 -- เช็คก่อนเริ่ม
 local startStyle = getStyle()
