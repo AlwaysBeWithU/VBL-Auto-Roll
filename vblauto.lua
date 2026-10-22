@@ -9,35 +9,38 @@ local RequestJerseyUpdate = Services.JerseyService.RF.RequestJerseyUpdate
 
 -- ===== อ่าน Config (ถ้าไม่ได้ตั้ง ใช้ค่าเริ่มต้น) =====
 local DEFAULT = {
+	AUTO_ROLL = true,
 	WANTED = { "Yachikusai" },
 	MAX_ROLLS = 500,
 	WAIT_AFTER_ROLL = 3,
 	CALL_JERSEY_UPDATE = true,
 }
 
-local userCfg = type(_G.RollConfig) == "table" and _G.RollConfig or {}
-local cfg = {}
-for k, v in pairs(DEFAULT) do
-	if userCfg[k] ~= nil then
-		cfg[k] = userCfg[k]
-	else
-		cfg[k] = v
+local function getCfg(key)
+	local user = type(_G.RollConfig) == "table" and _G.RollConfig or {}
+	if user[key] ~= nil then
+		return user[key]
 	end
+	return DEFAULT[key]
 end
 
--- WANTED ใส่เป็น string เดี่ยวๆ ก็ได้
-if type(cfg.WANTED) == "string" then
-	cfg.WANTED = { cfg.WANTED }
+-- อ่านสดทุกครั้ง เพื่อให้สลับเปิด/ปิดระหว่างรันได้
+local function isAutoRoll()
+	return getCfg("AUTO_ROLL") == true
 end
-if type(cfg.WANTED) ~= "table" or #cfg.WANTED == 0 then
+
+local WANTED = getCfg("WANTED")
+if type(WANTED) == "string" then
+	WANTED = { WANTED }
+end
+if type(WANTED) ~= "table" or #WANTED == 0 then
 	warn("WANTED ว่างหรือผิดรูปแบบ หยุดทำงาน")
 	return
 end
 
-local WANTED = cfg.WANTED
-local MAX_ROLLS = tonumber(cfg.MAX_ROLLS) or DEFAULT.MAX_ROLLS
-local WAIT_AFTER_ROLL = tonumber(cfg.WAIT_AFTER_ROLL) or DEFAULT.WAIT_AFTER_ROLL
-local CALL_JERSEY_UPDATE = cfg.CALL_JERSEY_UPDATE == true
+local MAX_ROLLS = tonumber(getCfg("MAX_ROLLS")) or DEFAULT.MAX_ROLLS
+local WAIT_AFTER_ROLL = tonumber(getCfg("WAIT_AFTER_ROLL")) or DEFAULT.WAIT_AFTER_ROLL
+local CALL_JERSEY_UPDATE = getCfg("CALL_JERSEY_UPDATE") == true
 -- =====================================================
 
 local function clean(text)
@@ -111,18 +114,31 @@ local function finish(status, rolls, markDone)
 	end
 end
 
-print("เริ่มสุ่ม | เป้าหมาย:", table.concat(WANTED, ", "), "| สูงสุด:", MAX_ROLLS)
+print("Auto Roll:", isAutoRoll() and "เปิด" or "ปิด",
+	"| เป้าหมาย:", table.concat(WANTED, ", "), "| สูงสุด:", MAX_ROLLS)
 
--- เช็คก่อนเริ่ม
+-- เช็คก่อนเริ่ม เผื่อได้ตัวที่ต้องการอยู่แล้ว
 local startStyle = getStyle()
 if startStyle ~= "" and isWanted(startStyle) then
 	finish("ได้ตัวที่ต้องการแล้ว", 0, true)
 	return
 end
 
+-- ปิด Auto Roll: ส่งสถานะปัจจุบันแล้วจบ ไม่สุ่ม
+if not isAutoRoll() then
+	finish("ปิด Auto Roll (ไม่สุ่ม)", 0, false)
+	return
+end
+
 local rolls = 0
 
 for i = 1, MAX_ROLLS do
+	-- เช็คสวิตช์ทุกรอบ ปิดระหว่างรันได้
+	if not isAutoRoll() then
+		finish("หยุดสุ่ม (ปิด Auto Roll) สุ่มไป " .. rolls .. " ครั้ง", rolls, false)
+		return
+	end
+
 	local ok, result = pcall(function()
 		return Roll:InvokeServer()
 	end)
