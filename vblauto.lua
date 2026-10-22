@@ -11,6 +11,7 @@ local Redeem = Services.CodeService.RF.Redeem
 -- ===== อ่าน Config (ถ้าไม่ได้ตั้ง ใช้ค่าเริ่มต้น) =====
 local DEFAULT = {
 	AUTO_ROLL = true,
+	LUCKY_SPIN = true,
 	WANTED = { "Sanju", "Kisuki" },
 	MAX_ROLLS = 500,
 	WAIT_AFTER_ROLL = 3,
@@ -33,6 +34,7 @@ end
 -- อ่านสดทุกครั้ง เพื่อสลับเปิด/ปิดระหว่างรันได้
 local function isAutoRoll() return getCfg("AUTO_ROLL") == true end
 local function isAutoRedeem() return getCfg("AUTO_REDEEM") == true end
+local function isLuckySpin() return getCfg("LUCKY_SPIN") == true end
 
 -- ===== ฟังก์ชันร่วม =====
 local function clean(text)
@@ -197,6 +199,7 @@ local function runRoll()
 	end
 
 	print("[Roll] Auto Roll:", isAutoRoll() and "เปิด" or "ปิด",
+		"| โหมด:", isLuckySpin() and "Lucky Spin" or "Normal Spin",
 		"| เป้าหมาย:", table.concat(WANTED, ", "), "| สูงสุด:", MAX_ROLLS)
 
 	-- เช็คก่อนเริ่ม เผื่อได้ตัวที่ต้องการอยู่แล้ว
@@ -221,7 +224,10 @@ local function runRoll()
 		end
 
 		local ok, result = pcall(function()
-			return Roll:InvokeServer()
+			if isLuckySpin() then
+				return Roll:InvokeServer(true) -- Lucky Spin
+			end
+			return Roll:InvokeServer()         -- Normal Spin
 		end)
 
 		if not ok then
