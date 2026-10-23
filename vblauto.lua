@@ -7,10 +7,11 @@ local Services = RS.Packages._Index["sleitnick_knit@1.7.0"].knit.Services
 local Roll = Services.StyleService.RF.Roll
 local RequestJerseyUpdate = Services.JerseyService.RF.RequestJerseyUpdate
 local Redeem = Services.CodeService.RF.Redeem
+local ClaimLevelRewards = Services.LevelService.RF.ClaimLevelRewards
 
--- ===== อ่าน Config (ถ้าไม่ได้ตั้ง ใช้ค่าเริ่มต้น) =====
+-- ===== Config (ถ้าไม่ได้ตั้ง ใช้ค่าเริ่มต้น) =====
 local DEFAULT = {
-	AUTO_ROLL = true,
+	AUTO_ROLL = false,
 	LUCKY_SPIN = true,
 	WANTED = { "Sanju", "Kisuki" },
 	MAX_ROLLS = 500,
@@ -32,7 +33,6 @@ local function getCfg(key)
 	return DEFAULT[key]
 end
 
--- อ่านสดทุกครั้ง เพื่อสลับเปิด/ปิดระหว่างรันได้
 local function isAutoRoll() return getCfg("AUTO_ROLL") == true end
 local function isAutoRedeem() return getCfg("AUTO_REDEEM") == true end
 local function isLuckySpin() return getCfg("LUCKY_SPIN") == true end
@@ -66,11 +66,64 @@ local function getLevel()
 	return 0
 end
 
--- สถานะกลาง (ลูปส่ง log อ่านจากตรงนี้)
-local state = { status = "เริ่มทำงาน", rolls = 0, lastLevel = 0, lastStyle = "" }
+local function getLuckySpins()
+	local char = workspace:FindFirstChild(player.Name)
+	for _, src in ipairs({ char, player }) do
+		if src then
+			for name, value in pairs(src:GetAttributes()) do
+				local n = name:lower()
+				if n:find("luckyspin") or n:find("lucky_spin") then
+					local num = tonumber(value)
+					if num then return num end
+				end
+			end
+		end
+	end
 
--- สถานะระบบใส่โค้ด
+	for _, child in ipairs(player:GetChildren()) do
+		if child:IsA("Folder") or child:IsA("Configuration") or child.Name:lower():find("data") or child.Name == "leaderstats" then
+			for _, val in ipairs(child:GetChildren()) do
+				if val:IsA("ValueBase") and val.Name:lower():find("lucky") then
+					local num = tonumber(val.Value)
+					if num then return num end
+				end
+			end
+		end
+	end
+
+	local playerGui = player:FindFirstChild("PlayerGui")
+	if playerGui then
+		local luckyList = playerGui:FindFirstChild("Interface", true)
+			and playerGui.Interface:FindFirstChild("Lobby", true)
+			and playerGui.Interface.Lobby:FindFirstChild("Styles", true)
+			and playerGui.Interface.Lobby.Styles:FindFirstChild("BottomPanel", true)
+			and playerGui.Interface.Lobby.Styles.BottomPanel:FindFirstChild("LuckyList", true)
+
+		if luckyList then
+			for _, gui in ipairs(luckyList:GetDescendants()) do
+				if (gui:IsA("TextLabel") or gui:IsA("TextBox")) and gui.Text ~= "" then
+					local num = tonumber(gui.Text:match("%d+"))
+					if num and not gui.Name:lower():find("price") then
+						return num
+					end
+				end
+			end
+		end
+	end
+
+	return nil -- อ่านไม่เจอ (ไม่ใช่ 0)
+end
+
+-- ===== สถานะกลาง =====
+local state = {
+	status = "เริ่มทำงาน",
+	rolls = 0,
+	lastLevel = 0,
+	lastStyle = "",
+	lastLuckySpins = nil,
+}
 local redeemState = { finished = false, success = 0, failed = 0, ran = false }
+local claimState = { success = 0, failed = 0 }
 
 local function redeemSummary()
 	if not redeemState.ran then
@@ -85,22 +138,32 @@ local function sendLog(status, rolls)
 		return
 	end
 
-	-- อ่านสดทุกครั้ง ถ้า Nametag/เสื้อหาย (ตาย/เกิดใหม่) ใช้ค่าล่าสุดแทน
 	local level = getLevel()
 	if level > 0 then state.lastLevel = level else level = state.lastLevel end
 
 	local style = getStyle()
 	if style ~= "" then state.lastStyle = style else style = state.lastStyle end
 
-	local msg = clean("🌲Level : " .. level .. " , ⚔️ Style : " .. style .. " , " .. status)
+	local luckySpins = getLuckySpins()
+	if luckySpins ~= nil then
+		state.lastLuckySpins = luckySpins
+	else
+		luckySpins = state.lastLuckySpins
+	end
+
+	local luckyText = luckySpins ~= nil and tostring(luckySpins) or "N/A"
+	local msg = clean("Level : " .. level .. " , Style : " .. style .. " , Lucky Spins : " .. luckyText .. " , " .. status)
 
 	local json = HttpService:JSONEncode({
 		Level = level,
 		Style = style,
+		LuckySpins = luckySpins,
 		Rolls = rolls,
 		Status = status,
 		RedeemSuccess = redeemState.success,
 		RedeemFailed = redeemState.failed,
+		ClaimSuccess = claimState.success,
+		ClaimFailed = claimState.failed,
 	})
 
 	local ok, err = pcall(_G.Horst_SetDescription, msg, json)
@@ -109,7 +172,6 @@ local function sendLog(status, rolls)
 	end
 end
 
--- ส่ง log ด้วยสถานะล่าสุดที่จำไว้
 local function report()
 	sendLog(state.status .. " , " .. redeemSummary(), state.rolls)
 end
@@ -118,7 +180,6 @@ local function finish(status, rolls, markDone)
 	state.status = status
 	state.rolls = rolls
 
-	-- ถ้าตั้งไว้ รอระบบใส่โค้ดเสร็จก่อนส่ง Done
 	if markDone and getCfg("WAIT_REDEEM_BEFORE_DONE") == true then
 		while isAutoRedeem() and not redeemState.finished do
 			task.wait(1)
@@ -135,10 +196,10 @@ local function finish(status, rolls, markDone)
 	end
 end
 
--- ==================== ลูปส่ง log ทุก N วินาที ====================
+-- ==================== ลูปส่ง log ====================
 local function runStatusLoop()
 	local interval = tonumber(getCfg("LOG_INTERVAL")) or DEFAULT.LOG_INTERVAL
-	if interval < 10 then interval = 10 end -- กันตั้งถี่เกินไป
+	if interval < 10 then interval = 10 end
 
 	print("[Log] ส่ง log ทุก", interval, "วินาที")
 
@@ -148,7 +209,44 @@ local function runStatusLoop()
 	end
 end
 
--- ==================== ระบบใส่โค้ด ====================
+-- ==================== รับของเลเวล ====================
+local function claimOnce(level)
+	local ok, result = pcall(function()
+		return ClaimLevelRewards:InvokeServer()
+	end)
+
+	if ok and result ~= false then
+		claimState.success += 1
+		print("[Claim] ✅ เลเวล", level, "->", tostring(result))
+	else
+		claimState.failed += 1
+		warn("[Claim] ❌ เลเวล", level, "->", tostring(result))
+	end
+end
+
+local function runClaim()
+	local lastLevel = 0
+	while lastLevel == 0 do
+		lastLevel = getLevel()
+		if lastLevel == 0 then task.wait(2) end
+	end
+
+	print("[Claim] เริ่มทำงาน | เลเวลปัจจุบัน:", lastLevel)
+	claimOnce(lastLevel)
+
+	while true do
+		task.wait(3)
+		local level = getLevel()
+
+		if level > lastLevel then
+			print(("[Claim] เลเวลเพิ่ม %d -> %d"):format(lastLevel, level))
+			claimOnce(level)
+			lastLevel = level
+		end
+	end
+end
+
+-- ==================== ใส่โค้ด ====================
 local function runRedeem()
 	local CODES = getCfg("CODES")
 	if type(CODES) == "string" then
@@ -164,7 +262,6 @@ local function runRedeem()
 
 	print("[Redeem] เปิด | รอเลเวล:", REDEEM_LEVEL, "| จำนวนโค้ด:", #CODES)
 
-	-- รอจนเลเวลถึงเกณฑ์
 	while true do
 		if not isAutoRedeem() then
 			print("[Redeem] ปิดอยู่ หยุดทำงาน")
@@ -204,7 +301,7 @@ local function runRedeem()
 	print(("[Redeem] เสร็จแล้ว สำเร็จ %d / ไม่สำเร็จ %d"):format(redeemState.success, redeemState.failed))
 end
 
--- ==================== ระบบสุ่ม ====================
+-- ==================== สุ่ม ====================
 local function runRoll()
 	local WANTED = getCfg("WANTED")
 	if type(WANTED) == "string" then
@@ -232,14 +329,12 @@ local function runRoll()
 		"| โหมด:", isLuckySpin() and "Lucky Spin" or "Normal Spin",
 		"| เป้าหมาย:", table.concat(WANTED, ", "), "| สูงสุด:", MAX_ROLLS)
 
-	-- เช็คก่อนเริ่ม เผื่อได้ตัวที่ต้องการอยู่แล้ว
 	local startStyle = getStyle()
 	if startStyle ~= "" and isWanted(startStyle) then
 		finish("ได้ตัวที่ต้องการแล้ว", 0, true)
 		return
 	end
 
-	-- ปิด Auto Roll: ส่งสถานะปัจจุบัน (ลูปส่ง log จะอัปเดตต่อเอง) แล้วจบส่วนสุ่ม
 	if not isAutoRoll() then
 		finish("ปิด Auto Roll (ไม่สุ่ม)", 0, false)
 		return
@@ -259,9 +354,9 @@ local function runRoll()
 
 		local ok, result = pcall(function()
 			if isLuckySpin() then
-				return Roll:InvokeServer(true) -- Lucky Spin
+				return Roll:InvokeServer(true)
 			end
-			return Roll:InvokeServer()         -- Normal Spin
+			return Roll:InvokeServer()
 		end)
 
 		if not ok then
@@ -287,7 +382,6 @@ local function runRoll()
 		local style = getStyle()
 		print(("[Roll] สุ่มครั้งที่ %d -> %s"):format(i, style))
 
-		-- อัปเดตสถานะให้ลูปส่ง log หยิบไปส่งรอบถัดไป
 		state.status = ("กำลังสุ่ม สุ่มไปแล้ว %d ครั้ง"):format(i)
 		state.rolls = i
 
@@ -301,9 +395,8 @@ local function runRoll()
 end
 
 -- ==================== เริ่มทำงาน ====================
-task.spawn(function()
-	pcall(runStatusLoop)
-end)
+task.spawn(function() pcall(runStatusLoop) end)
+task.spawn(function() pcall(runClaim) end)
 
 if isAutoRedeem() then
 	task.spawn(function()
