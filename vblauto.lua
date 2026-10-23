@@ -152,7 +152,7 @@ local function sendLog(status, rolls)
 	end
 
 	local luckyText = luckySpins ~= nil and tostring(luckySpins) or "N/A"
-	local msg = clean("🌲Level : " .. level .. " , ⚔️Style : " .. style .. " , 🍀Lucky Spins : " .. luckyText .. ")
+	local msg = clean("🌲Level : " .. level .. " , ⚔️Style : " .. style .. " , 🍀Lucky Spins : " .. luckyText .. ", " .. status)
 
 	local json = HttpService:JSONEncode({
 		Level = level,
